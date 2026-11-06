@@ -62,7 +62,7 @@ BASE_PATH=/film-stills-gallery/ npm run preview
 
 底座为 [Arthur Soares 的 simple-photo-gallery](https://github.com/arthursoares/simple-photo-gallery)，代码沿用 MIT 许可证。片单和详情交互参考了[野果子](https://yeguozi.com/films)和 [Movie-Gallery](https://kesh1354.github.io/Movie-Gallery/)。
 
-当前 6 部影片、导演和 12 张剧照是本地演示内容。剧照使用内置 imagegen 生成后裁分，保存在 `src/content/photos/` 的影片目录。正式入库时请替换成可以在目标站点展示的画面。
+标有示例标记的影片和画面为虚构内容，使用内置 imagegen 生成。来自 Wikimedia Commons 的剧照按影片页列出的各自许可使用。
 
 <details>
 <summary>示例剧照生成提示词</summary>

@@ -24,8 +24,12 @@ SOFTWARE.
 
 UPSTREAM EXAMPLE CONTENT: the photographs in the upstream demo and its
 Git history are © Arthur Soares (https://arthur.earth) and are not covered
-by the MIT license above. The film archive uses its own generated demo
-images in the current source tree.
+by the MIT license above.
+
+THIRD-PARTY STILLS: Wikimedia Commons images and their web renditions
+are distributed under the individual Creative Commons licenses stated
+with their attribution in each film's index.md under src/content/photos/.
+These image licenses are separate from the MIT software license.
 
 The bundled font "Atkinson Hyperlegible Next" is licensed by the Braille
 Institute of America under its own free license.
