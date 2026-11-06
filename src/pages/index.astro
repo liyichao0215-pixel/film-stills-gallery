@@ -1,0 +1,154 @@
+---
+import { Image } from 'astro:assets';
+import config from '../../gallery.config';
+import ColorPalette from '../components/ColorPalette.astro';
+import FilmShell from '../layouts/FilmShell.astro';
+import { getGallery } from '../lib/photos';
+import { thumbAttrs, viewerAttrs } from '../lib/images';
+import { withBase } from '../lib/url';
+
+const { albums } = await getGallery();
+const films = albums.flatMap((album) => {
+  const film = album.entry?.data.film;
+  return film ? [{ album, ...film, decade: String(Math.floor(film.year / 10) * 10) }] : [];
+}).sort((a, b) => b.year - a.year || a.album.title.localeCompare(b.album.title, 'zh-CN'));
+const featured = films.find((film) => film.featured) ?? films[0];
+const unique = (values: string[]) => [...new Set(values)].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+const filters = [
+  { name: 'director', label: '导演', options: unique(films.flatMap((film) => film.directors)) },
+  { name: 'region', label: '地区', options: unique(films.flatMap((film) => film.regions)) },
+  { name: 'decade', label: '年代', options: unique(films.map((film) => film.decade)).reverse() },
+];
+---
+
+<FilmShell>
+  <main id="main" class="film-container" tabindex="-1">
+    <section class="film-intro" aria-labelledby="catalog-title">
+      <p class="film-kicker"><span aria-hidden="true"></span> FILM INDEX</p>
+      <h1 id="catalog-title">电影片库</h1>
+      <p>{config.description}</p>
+    </section>
+
+    {featured && (
+      <article class="film-feature">
+        <a class="film-feature-link" href={withBase(featured.album.slug + '/')}>
+          <div class="film-feature-copy">
+            <p class="film-kicker"><span aria-hidden="true"></span> 本期精选</p>
+            <h2>{featured.album.title}</h2>
+            {featured.originalTitle && <p class="film-feature-original" lang="en">{featured.originalTitle}</p>}
+            <p class="film-feature-meta">{[featured.year, featured.directors.join(' / '), featured.regions.join(' / ')].join(' · ')}</p>
+            <span class="film-feature-action">进入剧照集 <span aria-hidden="true">↗</span></span>
+          </div>
+          <div class="film-feature-image">
+            <Image src={featured.album.cover.image} {...viewerAttrs(featured.album.cover.image)} sizes="(max-width: 650px) 94vw, (max-width: 1280px) 62vw, 780px" alt={featured.album.cover.alt} loading="eager" fetchpriority="high" />
+          </div>
+        </a>
+      </article>
+    )}
+
+    <section class="film-list" aria-labelledby="film-list-title">
+      <div class="film-list-heading">
+        <h2 id="film-list-title">全部影片</h2>
+        <p class="film-count" role="status" data-film-count>{films.length} 部影片</p>
+      </div>
+      {films.length > 0 && (
+        <form class="film-filters" aria-label="筛选影片" data-film-filters hidden>
+          {filters.map(({ name, label, options }) => (
+            <label>
+              <span>{label}</span>
+              <select name={name}>
+                <option value="">全部{label}</option>
+                {options.map((value) => <option value={value}>{name === 'decade' ? `${value} 年代` : value}</option>)}
+              </select>
+            </label>
+          ))}
+          <button type="reset" class="film-reset" disabled>清除筛选</button>
+        </form>
+      )}
+      <p class="film-empty" data-film-empty hidden={films.length !== 0}>{films.length ? '没有符合条件的影片。试试调整筛选。' : '片库暂时没有影片。'}</p>
+      <ul class="film-grid">
+        {films.map(({ album, originalTitle, directors, regions, year, decade }, index) => (
+          <li data-film-card data-directors={JSON.stringify(directors)} data-regions={JSON.stringify(regions)} data-decade={decade}>
+            <a class="film-card" href={withBase(album.slug + '/')}>
+              <div class="film-card-image">
+                <Image src={album.cover.image} {...thumbAttrs(album.cover.image)} sizes="(max-width: 400px) 94vw, (max-width: 900px) 46vw, 388px" alt="" loading="lazy" />
+                <span class="film-card-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+              </div>
+              {album.cover.palette && <ColorPalette colors={album.cover.palette} label="封面色卡" />}
+              <div class="film-card-title">
+                <h3>{album.title}</h3>
+                <span>{year}</span>
+              </div>
+              {originalTitle && <p class="film-card-original" lang="en">{originalTitle}</p>}
+              <p class="film-card-meta">{directors.join(' / ')} · {regions.join(' / ')}</p>
+            </a>
+          </li>
+        ))}
+      </ul>
+      {films.some((film) => film.demo) && <p class="film-demo-note">片单含虚构影片与 AI 生成的示例剧照。</p>}
+    </section>
+  </main>
+</FilmShell>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-film-filters]');
+  if (form) {
+    const selects = [...form.querySelectorAll('select')];
+    const reset = form.querySelector<HTMLButtonElement>('button[type="reset"]')!;
+    const count = document.querySelector<HTMLElement>('[data-film-count]')!;
+    const empty = document.querySelector<HTMLElement>('[data-film-empty]')!;
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-film-card]')].map((element) => ({
+      element,
+      directors: JSON.parse(element.dataset.directors!) as string[],
+      regions: JSON.parse(element.dataset.regions!) as string[],
+      decade: element.dataset.decade,
+    }));
+
+    function update() {
+      const [director, region, decade] = selects.map((select) => select.value);
+      let visible = 0;
+      for (const card of cards) {
+        const match = (!director || card.directors.includes(director)) &&
+          (!region || card.regions.includes(region)) &&
+          (!decade || card.decade === decade);
+        card.element.hidden = !match;
+        if (match) visible += 1;
+      }
+      const filtered = Boolean(director || region || decade);
+      count.textContent = filtered ? `显示 ${visible} / ${cards.length} 部影片` : `${cards.length} 部影片`;
+      empty.hidden = visible > 0;
+      reset.disabled = !filtered;
+    }
+
+    function restore() {
+      const params = new URL(location.href).searchParams;
+      for (const select of selects) {
+        select.value = params.get(select.name) ?? '';
+        if (select.selectedIndex === -1) select.value = '';
+      }
+      update();
+    }
+
+    function save() {
+      const url = new URL(location.href);
+      for (const { name, value } of selects) {
+        if (value) url.searchParams.set(name, value);
+        else url.searchParams.delete(name);
+      }
+      history.replaceState(history.state, '', url);
+      update();
+    }
+
+    form.addEventListener('submit', (event) => event.preventDefault());
+    form.addEventListener('change', save);
+    form.addEventListener('reset', (event) => {
+      event.preventDefault();
+      for (const select of selects) select.value = '';
+      selects[0]?.focus();
+      save();
+    });
+    window.addEventListener('popstate', restore);
+    restore();
+    form.hidden = false;
+  }
+</script>

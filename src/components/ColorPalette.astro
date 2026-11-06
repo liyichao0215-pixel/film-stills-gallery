@@ -1,0 +1,18 @@
+---
+interface Props {
+  colors: string[];
+  showValues?: boolean;
+  label: string;
+}
+const { colors, showValues = false, label } = Astro.props;
+---
+{colors.length > 0 && (
+  <ul class:list={['color-palette', { 'color-palette--values': showValues }]} aria-label={label} role="list">
+    {colors.map((hex) => (
+      <li>
+        <span class="color-palette-swatch" style={{ backgroundColor: hex }} title={hex} aria-hidden="true"></span>
+        <code class:list={{ 'color-palette-sr-only': !showValues }}>{hex}</code>
+      </li>
+    ))}
+  </ul>
+)}

@@ -1,0 +1,40 @@
+---
+import FilmShell from '../layouts/FilmShell.astro';
+import AlbumFeed from './AlbumFeed.astro';
+import Lightbox from './Lightbox.astro';
+import { withBase } from '../lib/url';
+import type { CollectionEntry } from 'astro:content';
+import type { Album } from '../lib/photos';
+
+interface Props {
+  album: Album;
+  film: NonNullable<CollectionEntry<'meta'>['data']['film']>;
+  image?: string;
+}
+const { album, film, image } = Astro.props;
+---
+<FilmShell title={album.title} description={album.entry?.data.caption} image={image}>
+  <main id="main" class="film-container film-detail" tabindex="-1">
+    <a class="film-back" href={withBase('')}>← 返回电影片库</a>
+    <header class="film-detail-header">
+      <p class="film-kicker"><span aria-hidden="true"></span> FILM STILLS</p>
+      <h1>{album.title}</h1>
+      {film.originalTitle && <p class="film-detail-original" lang="en">{film.originalTitle}</p>}
+      <dl class="film-facts">
+        <div><dt>导演</dt><dd>{film.directors.join(' / ')}</dd></div>
+        <div><dt>地区</dt><dd>{film.regions.join(' / ')}</dd></div>
+        <div><dt>年份</dt><dd>{film.year}</dd></div>
+      </dl>
+      {album.entry?.data.caption && <p class="film-detail-caption">{album.entry.data.caption}</p>}
+    </header>
+    <section class="film-list" aria-labelledby="stills-title">
+      <div class="film-list-heading">
+        <h2 id="stills-title">剧照集</h2>
+        <p class="film-count">{album.photos.length} 张剧照</p>
+      </div>
+      <AlbumFeed photos={album.photos} entry={album.entry} />
+      {film.demo && <p class="film-demo-note">虚构影片 · AI 生成示例剧照</p>}
+    </section>
+  </main>
+  <Lightbox chinese />
+</FilmShell>

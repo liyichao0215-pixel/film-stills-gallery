@@ -1,0 +1,53 @@
+---
+/**
+ * Photo-essay feed — large framed photos in normal flow (album pages and
+ * single-mode 'essay' presentation). Clicking a photo opens the lightbox
+ * at its full-size rendition.
+ */
+import ColorPalette from './ColorPalette.astro';
+import { Image, getImage } from 'astro:assets';
+import { photoCaption, photoExifLine, type Photo } from '../lib/photos';
+import { viewerAttrs, fullRendition } from '../lib/images';
+
+interface Props {
+  photos: Photo[];
+}
+
+const { photos } = Astro.props;
+const frames = await Promise.all(
+  photos.map(async (photo) => ({
+    photo,
+    caption: photoCaption(photo) || photo.title,
+    exifLine: photoExifLine(photo),
+    full: await getImage(fullRendition(photo.image)),
+  }))
+);
+---
+
+<div class="pe-feed">
+  {
+    frames.map(({ photo, caption, exifLine, full }, i) => (
+      <figure class="pe-figure gv-frame">
+        <button class="gx-open" type="button">
+          <Image
+            class="gv-img gx-zoomable"
+            src={photo.image}
+            {...viewerAttrs(photo.image)}
+            alt={photo.alt}
+            loading={i < 2 ? 'eager' : 'lazy'}
+            data-gx-full={full.src}
+            data-gx-cap={caption}
+          />
+          {photo.palette && <span class="film-card-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>}
+        </button>
+        <figcaption class:list={['gv-bar', { 'film-still-caption': photo.palette }]}>
+          <span class="gv-cap">
+            <b class="gv-cap-title">{caption}</b>
+            {exifLine && <span class="gv-cap-sub">· {exifLine}</span>}
+          </span>
+          {photo.palette && <ColorPalette colors={photo.palette} showValues label={`剧照 ${String(i + 1).padStart(2, '0')} 色卡`} />}
+        </figcaption>
+      </figure>
+    ))
+  }
+</div>

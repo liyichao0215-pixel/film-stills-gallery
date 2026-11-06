@@ -1,0 +1,132 @@
+---
+/**
+ * Root-level dynamic route serving two kinds of paths:
+ *   - album pages (gallery mode): writeup + photo-essay feed + lightbox
+ *   - entry pages (src/content/pages/*.md): markdown in the docs style
+ * Slugs that would shadow each other, or a built-in route, fail the build.
+ */
+import { render } from 'astro:content';
+import { getImage } from 'astro:assets';
+import Shell from '../layouts/Shell.astro';
+import FilmDetail from '../components/FilmDetail.astro';
+import AlbumFeed from '../components/AlbumFeed.astro';
+import Lightbox from '../components/Lightbox.astro';
+import { getGallery, formatDate, type Album } from '../lib/photos';
+import { reservedRouteNames } from '../lib/naming';
+import { getPages, type PageEntry } from '../lib/pages';
+import { ogRendition } from '../lib/images';
+import { withBase } from '../lib/url';
+
+export async function getStaticPaths() {
+  /* Names taken by static routes in src/pages/, derived rather than hardcoded
+     so adding a page cannot silently start shadowing an album of the same
+     name. Modules are never imported — only their paths are read. (This has to
+     live inside getStaticPaths: Astro hoists it into its own module scope, so
+     it cannot close over frontmatter variables.) */
+  const RESERVED = reservedRouteNames(
+    Object.keys(import.meta.glob('/src/pages/**/*.{astro,md,mdx,html}'))
+  );
+
+  const gallery = await getGallery();
+  const pages = await getPages();
+  const albumPaths =
+    gallery.mode === 'gallery'
+      ? gallery.albums.map((album) => ({
+          params: { slug: album.slug },
+          props: { album, page: null },
+        }))
+      : [];
+  const pagePaths = pages.map((page) => ({
+    params: { slug: page.id },
+    props: { album: null, page },
+  }));
+
+  /* Fail the build loudly on slug collisions instead of letting one route
+     silently shadow another. */
+  const seen = new Map<string, 'album' | 'page'>();
+  for (const { params, props } of [...albumPaths, ...pagePaths]) {
+    const kind = props.album ? 'album' : 'page';
+    const source =
+      kind === 'album'
+        ? `the album folder src/content/photos/${params.slug}/`
+        : `the page src/content/pages/${params.slug}.md`;
+    if (RESERVED.has(params.slug))
+      throw new Error(
+        `Slug collision: "${params.slug}" is a built-in page (src/pages/${params.slug}.astro), ` +
+          `but ${source} also resolves to /${params.slug}/. Rename one of them.`
+      );
+    const clash = seen.get(params.slug);
+    if (clash)
+      throw new Error(
+        `Slug collision: two ${clash === kind ? `${kind}s` : 'entries'} resolve to ` +
+          `/${params.slug}/ (${clash} and ${kind}). Rename one of them.`
+      );
+    seen.set(params.slug, kind);
+  }
+
+  return [...albumPaths, ...pagePaths];
+}
+
+/* A route is either an album or a page, never both and never neither — as a
+   union, so the template narrows without non-null assertions. */
+type Props = { album: Album; page: null } | { album: null; page: PageEntry };
+
+const { album, page } = Astro.props as Props;
+
+const film = album?.entry?.data.film;
+const date = album ? formatDate(album.date) : undefined;
+const excerpt = album ? album.entry?.data.caption : page.data.description;
+const title = album ? album.title : page.data.title;
+const PageBody = album ? null : (await render(page)).Content;
+const ogImage = album ? (await getImage(ogRendition(album.cover.image))).src : undefined;
+---
+
+{album && film ? <FilmDetail album={album} film={film} image={ogImage} /> : (
+<Shell
+  title={title}
+  description={excerpt}
+  count={album ? `${album.photos.length} photos` : undefined}
+  image={ogImage}
+>
+  <main class="site-main">
+    <section class="w-pgh">
+      <div class="w-pgh-kick">
+        <a href={withBase('')}>← gallery</a>
+        <span class="w-pgh-kick-sep">·</span>
+        {
+          album ? (
+            <>
+              <span class="w-pgh-kick-mark">▣</span>
+              Album
+              {date && (
+                <>
+                  <span class="w-pgh-kick-sep">·</span>
+                  <span>{date}</span>
+                </>
+              )}
+              <span class="w-pgh-kick-sep">·</span>
+              <span>{album.photos.length} photos</span>
+            </>
+          ) : (
+            <>
+              <span class="w-pgh-kick-mark">{page.data.mark}</span>
+              {title}
+            </>
+          )
+        }
+      </div>
+      <h1 class="w-pgh-title">{title}</h1>
+      {excerpt && <p class="w-pgh-excerpt">{excerpt}</p>}
+    </section>
+
+    {
+      album ? (
+        <AlbumFeed photos={album.photos} entry={album.entry} />
+      ) : (
+        <article class="docs-prose">{PageBody && <PageBody />}</article>
+      )
+    }
+  </main>
+  {album && <Lightbox />}
+</Shell>
+)}

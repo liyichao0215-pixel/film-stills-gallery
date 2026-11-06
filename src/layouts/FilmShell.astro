@@ -1,0 +1,55 @@
+---
+import config from '../../gallery.config';
+import { withBase } from '../lib/url';
+import '../styles/tokens.css';
+import '../styles/fonts.css';
+import '../styles/gallery.css';
+import '../styles/films.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+}
+const { title, description = config.description, image } = Astro.props;
+const pageTitle = title ? `${title} · ${config.title}` : `${config.title} · 电影片库`;
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : undefined;
+---
+<!doctype html>
+<html lang="zh-CN" class="film-site">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    {image && Astro.site && <meta property="og:image" content={new URL(image, Astro.site).href} />}
+    {canonical && <link rel="canonical" href={canonical.href} />}
+    <link rel="icon" type="image/svg+xml" href={withBase('favicon.svg')} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <a class="film-skip" href="#main">跳到正文</a>
+    <header class="film-header">
+      <div class="film-container film-header-inner">
+        <a class="film-brand" href={withBase('')} aria-label="留帧，电影片库首页">
+          <svg width="25" height="25" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <path d="M10 4H4v6m14-6h6v6M4 18v6h6m14-6v6h-6" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M10 10h8v8h-8z" fill="currentColor"/>
+          </svg>
+          <span>{config.title}</span>
+          <small>FRAME ARCHIVE</small>
+        </a>
+        <nav aria-label="主导航">
+          <a class="film-nav-link" href={withBase('')} aria-current={!title ? 'page' : undefined}>电影片库</a>
+        </nav>
+        <span class="film-header-index" aria-hidden="true">视觉档案 / VOL. 01</span>
+      </div>
+    </header>
+    <div class="site-content"><slot /></div>
+    <footer class="film-container film-footer">
+      <span>留帧 <span aria-hidden="true">/</span> 电影视觉档案</span>
+      <span>FRAME ARCHIVE</span>
+    </footer>
+  </body>
+</html>

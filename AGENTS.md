@@ -1,0 +1,256 @@
+# AGENTS.md — guide for coding agents
+
+This file is the map for AI agents (and humans) modifying this repo.
+User-facing docs live in README.md; this file covers architecture,
+conventions, and extension recipes.
+
+## Film archive fork
+
+The public home is a film catalog in `src/pages/index.astro`. Album
+frontmatter under `film` drives its filters and the film detail view in
+`FilmDetail.astro`. Album folders, optimized images, and the shared
+lightbox still use the upstream pipeline below. Film pages use
+`FilmShell.astro` and `films.css`. See README.md for local preview,
+film metadata, and preparation for a separate GitHub Pages repository.
+
+## Upstream architecture
+
+A static photo-gallery site builder: Astro 5, no UI framework, vanilla JS
+for interactivity, one CSS design system ("Modern TUI"). Photos +
+optional markdown go into `src/content/photos/`; the build produces a
+fully static `dist/` deployed to GitHub Pages by
+`.github/workflows/deploy.yml`.
+
+## Commands
+
+```bash
+npm run dev       # dev server on :4321
+npm run build     # static build → dist/ (this is also the type gate)
+npm test          # node:test suite over the pure helpers (needs node ≥ 22.6)
+npm run preview   # serve dist/
+npm run demo      # generate placeholder photos WITH EXIF (refuses if content exists)
+npm run album -- --title "…" --dir <src>   # ingest photos (see Operating below)
+BASE_PATH=/repo/ npm run build   # simulate a GitHub Pages project path
+```
+
+Verification loop: `npm test` (pure helpers — slugs, ordering chain, filename
+dates, caption templates, `cover:`/`photos:` reference resolution), then
+`npm run build` for schema/type/content errors, then a manual look at the
+pages. Anything you add to `src/lib/naming.ts` or `src/lib/caption.ts` should
+come with a test — a build alone cannot catch a regression in either. To verify visually,
+build + preview and check `/`, an album page, Viewer mode (`❑ Viewer`
+button), and the lightbox (click a photo on an album page).
+
+## Architecture (data flows top to bottom)
+
+```
+src/content/photos/**            photos + optional .md metadata (authoring surface)
+src/content.config.ts            zod schema for the markdown ('meta' collection)
+gallery.config.ts                ALL site configuration (see below)
+src/content/pages/*.md           standalone "entry pages" (about, colophon…) —
+                                   published at /<filename>/, auto-linked in the menu
+src/lib/photos.ts                ★ data layer: scans images, reads EXIF (exifr),
+                                   resolves ordering/naming/caption chains,
+                                   builds { mode, albums, singles, items };
+                                   singleAlbum() wraps loose photos for 'single'
+src/lib/naming.ts                pure helpers (slug, ordering, filename dates,
+                                   cover:/photos: reference resolution) — no
+                                   Astro imports so tests/ can exercise them
+src/lib/pages.ts                 entry-pages collection access (getPages/navPages)
+src/lib/caption.ts               '{token} · {token}' template renderer
+src/lib/images.ts                rendition presets from config.images
+src/lib/url.ts                   withBase() — base-path-safe internal URLs
+src/pages/index.astro            '/' — dispatches on mode (gallery|single) and
+                                   presentation (grid|essay)
+src/pages/[slug].astro           album pages (gallery mode) + markdown entry pages
+src/pages/docs.astro             hand-written documentation page (.docs-prose styles)
+src/layouts/Shell.astro          html shell + chrome variants (header|rail|frame);
+                                   menu = entry pages (nav:true) + config.nav links
+src/components/KebabNav.astro    mobile ⋮ dropdown (config.mobileNav: 'kebab'|'inline';
+                                   gated by [data-mobile-nav] on <body>, ≤767px only)
+src/components/
+  GalleryIndex.astro             Grid ⇄ Viewer experience + all its JS (masonry,
+                                   keyboard nav, IntersectionObserver, #slug deep links)
+  Thumb.astro / Entry.astro      one grid thumbnail / one viewer entry
+  AlbumFeed.astro                album writeup + photo feed (shared by the
+                                   album route and single-mode 'essay')
+  PhotoEssay.astro               album-page photo feed (lightbox triggers)
+  Lightbox.astro                 .gx full-screen overlay + its JS
+  ThemeToggle.astro              light/dark, localStorage-persisted
+src/styles/
+  tokens.css                     design tokens incl. dark mode — change colors HERE
+  shell.css                      app frame, chrome variants, page header, filter bar
+  gallery.css                    .gv-* (grid/viewer), .pe-* (essay), .gx (lightbox)
+  fonts.css                      @font-face (files in src/assets/fonts/)
+```
+
+## Content model invariants
+
+- Folder under `src/content/photos/` = album; loose image = single photo.
+- `<folder>/index.md` = album metadata + writeup; `<basename>.md` next to an
+  image = its sidecar (works for loose photos AND inside album folders).
+  Everything optional. `draft: true` on an album's index.md hides the album;
+  on a photo sidecar it hides that photo.
+- Slugs are ASCII-lowercase (`slugify` in naming.ts); names with no ASCII
+  alphanumerics fall back to a stable hash (`p-…`), and there is no
+  transliteration — distinct names can collide (e.g. `a b` / `a-b`). Album ↔
+  entry-page ↔ built-in route collisions fail the build with a clear error
+  ([slug].astro getStaticPaths).
+- **Ordering chain** (photos.ts): explicit `photos:` list → numeric filename
+  prefix → EXIF DateTimeOriginal → filename date (YYYY-MM-DD-…) → filename.
+- **Naming chain**: markdown title → EXIF/XMP/IPTC title → humanized filename.
+- **Tags**: frontmatter `tags` ∪ IPTC/XMP keywords.
+- `cover:` and `photos:` entries must name a real file in the album — a typo,
+  a case mismatch, a repeat or an ambiguous basename fails the build with the
+  list of files that were found. References may use the bare filename or, for
+  photos in a sub-folder, the album-relative path (`rolls/shot.jpg`).
+- Sub-folders inside an album stay part of that album; their photos keep the
+  relative path as their metadata/reference key, so `a/shot.jpg` and
+  `b/shot.jpg` do not collide and each can have its own `.md` sidecar.
+- Photo slugs must be unique site-wide (they are the Viewer's `data-slug`, the
+  entry's DOM id and the `/#slug` deep link). Because slugify folds `/`, ` `
+  and everything else to `-`, `sub/shot.jpg` and `sub-shot.jpg` collide —
+  `assertUniqueSlugs` fails the build naming both files rather than shipping a
+  duplicate id that deep-links to the wrong photo.
+- A photo's site-wide slug is `album-slug/file-slug` or `file-slug`; the
+  gallery index deep-links Viewer position as `/#<slug>`.
+- **Entry pages**: `src/content/pages/<name>.md` → `/<name>/`, rendered in
+  `.docs-prose` style by [slug].astro. Frontmatter: `title`, `description`,
+  `mark`, `nav`/`navLabel`/`order`, `draft`. A page filename that matches an
+  album folder collides → duplicate-path build error (intentional).
+
+## Operating a gallery (content tasks)
+
+> Packaged version of this runbook for agent assistants:
+> `skills/photo-gallery/` (SKILL.md + operations/setup/customize references).
+
+Recipes for publishing content to a deployed gallery (this repo or any
+fork/scaffold). All content operations are plain files + git; the CI build
+is the validator (slug collisions, bad frontmatter, and broken `photos:`/
+`cover` references fail it loudly) and every publish is a revertable commit.
+
+**Add an album** (from a folder of source images):
+
+```bash
+npm install                          # once per clone
+npm run album -- --title "Sicily: Palermo" --dir ~/photos/palermo \
+    [--caption "…"] [--date 2026-05-01] [--slug palermo] [--max 2400] [--force]
+# → resizes to ≤2400px long edge PRESERVING EXIF, writes
+#   src/content/photos/<slug>/ + an index.md stub
+# then: edit the index.md (captions, cover, photos: order) if asked to
+```
+
+**Add loose single photos**: `npm run album -- --single --dir <folder>`,
+then optionally write a `<basename>.md` sidecar per photo (title, caption,
+alt, date, tags).
+
+**Add a standalone page**: write `src/content/pages/<name>.md`
+(title/description/mark/nav/navLabel/order/draft frontmatter + markdown body).
+
+**Unpublish** anything: set `draft: true` (album `index.md`, photo sidecar,
+or page) — or `git revert` the commit that added it.
+
+**Publish & verify** — the success ritual every task ends with:
+
+```bash
+git add -A && git commit -m "feat(album): palermo" && git push
+gh run watch --exit-status                 # Pages deploy; non-zero = build failed
+curl -sf -o /dev/null https://<user>.github.io/<repo>/<slug>/ && echo live
+```
+
+Report the live URL when done. Never commit originals straight off a camera —
+always go through `npm run album` (repo bloat; Pages has a ~1 GB site limit).
+EXIF must be preserved on any image processing: the build uses it for
+ordering, dates, and captions.
+
+## Configuration semantics (gallery.config.ts)
+
+| Key | Affects |
+| --- | --- |
+| `title`, `description`, `author` | `<title>`/meta, chrome title, page header |
+| `mode` | routing: `gallery` → index + `/<album>/` pages; `single` → one album at `/`; `auto` decides by content shape |
+| `presentation` | single mode only: `grid` (Grid ⇄ Viewer) or `essay` (writeup + photo feed + lightbox) |
+| `chrome` | which shell variant Shell.astro renders; styles in shell.css under `[data-chrome=…]` |
+| `captionTemplate` / `exifTemplate` | rendered by lib/caption.ts; tokens from `captionContext()` in photos.ts; '·'-separated segments with all-empty tokens are dropped |
+| `images.{thumb,viewer,full,quality}` | the renditions sharp generates, via lib/images.ts presets |
+| `dateFormat`, `locale` | Intl.DateTimeFormat for the `{date}` token |
+
+## Hard-won gotchas
+
+- **Content-collection IDs are lossy.** The glob loader slugifies ids and
+  strips `/index`, so photos.ts keys metadata by `entry.filePath` instead.
+  Don't "simplify" it back to `entry.id`.
+- **Base path.** GitHub Pages project sites serve from `/<repo>/`. Internal
+  hrefs/srcs must go through `withBase()` (lib/url.ts) or Vite-bundled
+  imports — never hardcode a root-relative `/path`. Fonts live in
+  `src/assets/fonts` (not `public/`) for exactly this reason. Verify with
+  `BASE_PATH=/x/ npm run build && grep -r 'href="/' dist/*.html`.
+- **photos.ts caches** its result in a module-level promise. A production
+  build builds once; the dev server re-checks a cheap content fingerprint
+  (image list + markdown frontmatter) per request and rebuilds only when it
+  changes — no restart needed for content edits.
+- **Masonry is JS-measured.** The grid is row-first CSS grid with 1px rows;
+  GalleryIndex.astro sets each thumb's `grid-row-end` span after the image
+  loads. Hidden grids can't be measured — that's why `setMode('grid')`
+  triggers a relayout.
+- **Lightbox triggers** are any `img.gx-zoomable` (capture-phase document
+  click listener). It prefers `data-gx-full` (2000px rendition) and
+  `data-gx-cap` for the caption.
+- **EXIF is read from the source file on disk** (`process.cwd()` + glob
+  key) at build time; nothing EXIF-related ships to the client. Unreadable
+  metadata warns and degrades rather than failing the build.
+- **Dates render in UTC.** EXIF times carry no zone, so exifr materialises
+  them in the build machine's zone; `readExifDate()` reads them from the
+  *exif segment* (`mergeOutput: false`) and re-anchors them with
+  `toWallClockUTC`, while a date coming from XMP — which may carry a real
+  offset — is used as parsed. Formatting then pins `timeZone: 'UTC'`. All
+  three halves are load-bearing; a build on a laptop and a build on a CI
+  runner must print the same day.
+- **The Viewer is JS-only** by design: the feed is `display:none` in Grid
+  mode, so `#slug` deep links and thumbnail-to-Viewer need script. The Grid
+  itself, album pages and entry pages are fully static.
+- The demo generator writes EXIF with sharp's `withExif` — `IFD0` for
+  Make/Model/ImageDescription, `IFD2` for DateTimeOriginal/exposure.
+
+## Design-system rules (Modern TUI) — do not violate
+
+1. `border-radius: 0` everywhere.
+2. Shadows are hard offsets, 0px blur (`--shadow-sm/md/lg`, `--shadow-pop`).
+3. No CSS transitions or animations; state changes are instant.
+4. Mono font + uppercase + `--tracking-mono` for meta text (captions,
+   chips, pills); body face for prose only.
+5. Dark mode is warm near-black (`#1a1918`), never cool gray; toggle via
+   `data-theme` on `<html>`.
+6. Every page ends with the `░▒▓ EOF ▓▒░` flourish (Shell.astro).
+7. Only `.site-content` scrolls, so the keyboard needs it focused before the
+   arrow keys work — that is what the skip link is for. Do not "helpfully"
+   focus it on load instead: that puts the first Tab inside the content, past
+   the skip link and the chrome nav.
+
+## Extension recipes
+
+- **New static page in src/pages/**: nothing to register — [slug].astro
+  derives its reserved-name list from `src/pages/**` (`reservedRouteNames`)
+  and fails the build if an album or entry page would shadow it. Only
+  `<name>.astro` and `<name>/index.astro` reserve `/<name>/`; a deeper page
+  like `legal/privacy.astro` leaves `/legal/` free for an album.
+- **New chrome variant**: add a branch in Shell.astro's body, style it in
+  shell.css under `[data-chrome="yourname"]`, extend the `chrome` union in
+  gallery.config.ts. If it adds a left column, set `--content-offset` so
+  the Viewer status chip stays centered on the content.
+- **New caption token**: add the field to `ExifInfo`/`captionContext()` in
+  photos.ts (and read it in `readExif()` if EXIF-sourced). Document it in
+  gallery.config.ts's comment and README.
+- **New page** (e.g. /about): usually just drop a markdown file in
+  `src/content/pages/` — it's published and added to the menu automatically.
+  Only write a custom `src/pages/*.astro` (wrap in `<Shell>`, `.w-pgh`
+  header, `.docs-prose` body; add to `nav` in gallery.config.ts) when the
+  page needs components or markup markdown can't express — see docs.astro.
+  In `.astro` prose, never write `{'{…}'}`-style brace expressions — the
+  compiler mis-parses them (unclosed-element corruption); use `&#123;`/`&#125;`.
+- **Tag filtering UI**: photo tags are already collected (`photo.tags`);
+  render filter buttons with the `.blog-navbar-item` style (shell.css) and
+  filter client-side by `data-slug`, or generate `/tag/<t>/` pages from
+  `getGallery()` in a new dynamic route.
+- **Changing colors/typography**: edit tokens.css only; components consume
+  tokens exclusively.
